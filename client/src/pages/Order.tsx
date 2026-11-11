@@ -41,12 +41,19 @@ export default function Order() {
     },
   });
 
-  const [submitted, setSubmitted] = useState(false);
+  const [order, setOrder] = useState<{ subject: string; body: string } | null>(null);
+  const [copied, setCopied] = useState(false);
 
-  // No server on the static site: the order opens in the customer's own email
-  // app, addressed to Peter, with every detail filled in.
-  const sendOrderByEmail = (data: OrderFormData) => {
-    const shelfLines = shelves.map((s, i) =>
+  const clampWidth = (w: string) =>
+    Math.min(130, Math.max(25, parseInt(w) || 25)).toString();
+
+  // No server on the static site. Submitting builds the order message and
+  // shows ways to send it to Peter: Gmail, the customer's email app,
+  // WhatsApp, or copy and paste.
+  const buildOrder = (data: OrderFormData) => {
+    const clean = shelves.map((s) => ({ ...s, width: clampWidth(s.width) }));
+    setShelves(clean);
+    const shelfLines = clean.map((s, i) =>
       `Shelf ${i + 1}: ${s.width} cm wide x 20 cm deep x 10 cm thick, ${s.woodStain} stain, ${s.finish} finish, quantity ${s.quantity}`
     ).join("\n");
     const body = [
@@ -60,13 +67,23 @@ export default function Order() {
       `Delivery address: ${data.address}`,
       `Special requirements: ${data.specialRequirements || "-"}`,
     ].join("\n");
-    const subject = `Shelf order request from ${data.name}`;
-    window.location.href = `mailto:${ORDER_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-    setSubmitted(true);
-    toast({
-      title: "Your email is ready to send",
-      description: "We've opened your email app with the order filled in. Press send and Peter will reply within 2-4 hours.",
-    });
+    setOrder({ subject: `Shelf order request from ${data.name}`, body });
+    setCopied(false);
+    setTimeout(() => document.getElementById("send-order")?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
+  };
+
+  const enc = encodeURIComponent;
+  const gmailLink = order ? `https://mail.google.com/mail/?view=cm&fs=1&to=${ORDER_EMAIL}&su=${enc(order.subject)}&body=${enc(order.body)}` : "";
+  const mailtoLink = order ? `mailto:${ORDER_EMAIL}?subject=${enc(order.subject)}&body=${enc(order.body)}` : "";
+  const whatsappLink = order ? `https://wa.me/351912825711?text=${enc(order.body)}` : "";
+  const copyOrder = async () => {
+    if (!order) return;
+    try {
+      await navigator.clipboard.writeText(`To: ${ORDER_EMAIL}\nSubject: ${order.subject}\n\n${order.body}`);
+      setCopied(true);
+    } catch {
+      toast({ title: "Couldn't copy", description: "Please select the text above and copy it.", variant: "destructive" });
+    }
   };
 
   const addShelf = () => {
@@ -92,7 +109,7 @@ export default function Order() {
       });
       return;
     }
-    sendOrderByEmail(data);
+    buildOrder(data);
   };
 
   return (
@@ -138,9 +155,9 @@ export default function Order() {
                         max="130"
                         value={shelf.width}
                         onChange={(e) => {
-                          const value = Math.min(130, Math.max(25, parseInt(e.target.value) || 25));
-                          updateShelf(index, "width", value.toString());
+                          updateShelf(index, "width", e.target.value.replace(/[^0-9]/g, ""));
                         }}
+                        onBlur={() => updateShelf(index, "width", clampWidth(shelf.width))}
                         data-testid={`input-width-${index}`}
                         className="text-base"
                       />
@@ -358,14 +375,24 @@ export default function Order() {
                 >
                   Submit Order Request
                 </Button>
-                <p className="text-sm text-muted-foreground text-center">
-                  {submitted
-                    ? "Email app didn't open? Send your order details to "
-                    : "Submitting opens your email app with the order filled in, ready to send to "}
-                  <a href={`mailto:${ORDER_EMAIL}`} className="underline">{ORDER_EMAIL}</a>
-                  {" "}or message Peter on{" "}
-                  <a href="https://wa.me/351912825711" target="_blank" rel="noopener noreferrer" className="underline">WhatsApp</a>.
-                </p>
+                {order && (
+                  <div id="send-order" className="p-6 rounded-md border border-primary/30 bg-primary/5 space-y-4">
+                    <h3 className="font-semibold text-lg">Last step: send your order to Peter</h3>
+                    <p className="text-sm text-muted-foreground">
+                      Your order is ready. Choose how to send it, then press send in the window that opens.
+                    </p>
+                    <pre className="whitespace-pre-wrap text-sm bg-background border rounded-md p-4 font-sans">{order.body}</pre>
+                    <div className="grid sm:grid-cols-2 gap-3">
+                      <Button asChild size="lg"><a href={gmailLink} target="_blank" rel="noopener noreferrer" data-testid="link-send-gmail">Send with Gmail</a></Button>
+                      <Button asChild size="lg" variant="outline"><a href={whatsappLink} target="_blank" rel="noopener noreferrer" data-testid="link-send-whatsapp">Send on WhatsApp</a></Button>
+                      <Button asChild size="lg" variant="outline"><a href={mailtoLink} data-testid="link-send-mailapp">Send with my email app</a></Button>
+                      <Button type="button" size="lg" variant="outline" onClick={copyOrder} data-testid="button-copy-order">{copied ? "Copied" : "Copy the order"}</Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Copied it? Paste it into an email to <a href={`mailto:${ORDER_EMAIL}`} className="underline">{ORDER_EMAIL}</a>. Peter replies within 2-4 hours.
+                    </p>
+                  </div>
+                )}
               </form>
             </Form>
           </CardContent>
